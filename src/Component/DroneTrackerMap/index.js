@@ -15,6 +15,8 @@ import {
   clusterCountLayer,
   clusterLayer,
   routeLayerStyle,
+  selectedCircleLayerStyle,
+  selectedDroneIconLayerStyle,
   unclusteredPointLayer,
 } from "./config";
 
@@ -194,9 +196,23 @@ export default function DroneTrackerMap() {
     setSelectedDrone(null);
   }, []);
 
-  const droneGeoJSON = useMemo(() => {
-    return dronesToGeoJSON(drones);
-  }, [drones]);
+  const currentSelectedDroneData = selectedDrone
+    ? drones.find((d) => d.id === selectedDrone.id) || selectedDrone
+    : null;
+
+  const selectedDroneGeoJSON = useMemo(() => {
+    if (!currentSelectedDroneData) return null;
+    return dronesToGeoJSON([currentSelectedDroneData]);
+  }, [currentSelectedDroneData]);
+
+  const nonSelectedDrones = useMemo(() => {
+    if (!selectedDrone) return drones;
+    return drones.filter((d) => d.id !== selectedDrone.id);
+  }, [drones, selectedDrone]);
+
+  const droneGeoJSONForCluster = useMemo(() => {
+    return dronesToGeoJSON(nonSelectedDrones);
+  }, [nonSelectedDrones]);
 
   return (
     <>
@@ -229,6 +245,35 @@ export default function DroneTrackerMap() {
             >
               <Layer {...routeLayerStyle} />
             </Source>
+            <Source
+              key={`selected-drone-icon-source-${currentSelectedDroneData.id}`}
+              id="selected-drone-icon-source"
+              type="geojson"
+              data={selectedDroneGeoJSON}
+            >
+              <Layer {...selectedDroneIconLayerStyle} />
+            </Source>
+
+            <Source
+              key={`halo-${currentSelectedDroneData.id}`}
+              id="halo-source"
+              type="geojson"
+              data={{
+                type: "FeatureCollection",
+                features: [
+                  {
+                    type: "Feature",
+                    geometry: {
+                      type: "Point",
+                      coordinates: currentSelectedDroneData.currentPosition,
+                    },
+                    properties: {},
+                  },
+                ],
+              }}
+            >
+              <Layer {...selectedCircleLayerStyle} />
+            </Source>
           </>
         )}
 
@@ -236,14 +281,18 @@ export default function DroneTrackerMap() {
           <Source
             id="drone-source"
             type="geojson"
-            data={droneGeoJSON}
+            data={droneGeoJSONForCluster}
             cluster={true}
             clusterMaxZoom={14}
             clusterRadius={50}
           >
             <Layer {...clusterLayer} />
             <Layer {...clusterCountLayer} />
-            <Layer {...unclusteredPointLayer} />
+            <Layer
+              {...unclusteredPointLayer}
+              id="unclustered-point"
+              paint={{ "icon-color": "#000000" }}
+            />
           </Source>
         )}
       </Map>

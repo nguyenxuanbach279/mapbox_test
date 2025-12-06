@@ -2,8 +2,8 @@ const CENTER_LONG = 106.7000;
 const CENTER_LAT = 10.7700;
 
 const RANDOM_HUB_RANGE = 0.05; 
-const NUM_HUBS = 100;
-const NUM_DRONES = 10;
+const NUM_HUBS = 10000;
+const NUM_DRONES = 100;
 
 const generateRandomHubs = (count) => {
     const hubs = [];
