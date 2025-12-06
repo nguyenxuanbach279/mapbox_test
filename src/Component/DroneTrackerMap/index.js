@@ -18,8 +18,7 @@ import {
   unclusteredPointLayer,
 } from "./config";
 
-const MAPBOX_TOKEN =
-  "pk.eyJ1IjoiYmFjaDI3MDkwMSIsImEiOiJjbWlzcXN5M2sxNzY2M2VwdnF6ZHM1NXJjIn0.aFeZ5HwOBJc7ASztxPQ2KQ";
+const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 
 const dronesToGeoJSON = (dronesArray) => {
   return {
