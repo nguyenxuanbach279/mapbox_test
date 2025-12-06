@@ -1,6 +1,5 @@
 import React from "react";
 import { FaCaretRight, FaCaretLeft } from "react-icons/fa";
-import droneImage from '../../assets/images/drone.png';
 
 const LeftSidebar = ({
   drones,

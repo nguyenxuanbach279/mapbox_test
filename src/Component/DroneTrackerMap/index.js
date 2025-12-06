@@ -1,33 +1,25 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { INITIAL_DRONE_ARRAY } from "../../data";
-import Map, { Layer, Marker, Popup, Source } from "react-map-gl/mapbox";
+import Map, { Layer, Source } from "react-map-gl/mapbox";
 import LeftSidebar from "../LeftSidebar";
 import droneImage from "../../assets/images/drone.png";
+import { DRONE_IMAGE_ID, INITIAL_VIEW_STATE, speed } from "../contants";
+import {
+  clusterCountLayer,
+  clusterLayer,
+  routeLayerStyle,
+  unclusteredPointLayer,
+} from "./config";
 
 const MAPBOX_TOKEN =
   "pk.eyJ1IjoiYmFjaDI3MDkwMSIsImEiOiJjbWlzcXN5M2sxNzY2M2VwdnF6ZHM1NXJjIn0.aFeZ5HwOBJc7ASztxPQ2KQ";
-
-const routeLayerStyle = {
-  id: "route-line",
-  type: "line",
-  layout: {
-    "line-join": "round",
-    "line-cap": "round",
-  },
-  paint: {
-    "line-color": "#00BFFF",
-    "line-width": 4,
-  },
-};
-
-const INITIAL_VIEW_STATE = {
-  longitude: 106.77,
-  latitude: 10.82,
-  zoom: 10.5,
-};
-
-const speed = 0.00005;
 
 const dronesToGeoJSON = (dronesArray) => {
   return {
@@ -48,65 +40,13 @@ const dronesToGeoJSON = (dronesArray) => {
   };
 };
 
-const clusterLayer = {
-  id: "clusters",
-  type: "circle",
-  source: "drone-source",
-  filter: ["has", "point_count"], // Lọc: Chỉ hiển thị các Feature có thuộc tính 'point_count' (là cụm)
-  paint: {
-    "circle-color": [
-      "step",
-      ["get", "point_count"], // Dựa vào số lượng điểm trong cụm
-      "#51bbd6",
-      100,
-      "#f1f075",
-      750,
-      "#f28cb1",
-    ],
-    "circle-radius": ["step", ["get", "point_count"], 20, 100, 30, 750, 40],
-  },
-};
-
-// Layer 2: Cluster Counts (Số lượng)
-const clusterCountLayer = {
-  id: "cluster-count",
-  type: "symbol",
-  source: "drone-source",
-  filter: ["has", "point_count"],
-  layout: {
-    "text-field": ["get", "point_count_abbreviated"],
-    "text-font": ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
-    "text-size": 12,
-    "icon-allow-overlap": true, // Cho phép số lượng đè lên vòng tròn
-  },
-  paint: {
-    "text-color": "#000",
-  },
-};
-
-// Layer 3: Unclustered Points (Điểm riêng lẻ)
-const unclusteredPointLayer = {
-  id: "unclustered-point",
-  type: "symbol",
-  source: "drone-source",
-  filter: ["!", ["has", "point_count"]],
-  layout: {
-    // ****** SỬ DỤNG ID CỦA ẢNH PNG ĐÃ ADD ******
-    "icon-image": droneImage,
-    "icon-size": 0.3, // Điều chỉnh kích thước (ví dụ: 0.3 lần kích thước gốc)
-    "icon-allow-overlap": true,
-    "icon-anchor": "bottom",
-    // Bỏ các thuộc tính text/emoji cũ
-  },
-  paint: {},
-};
-
 export default function DroneTrackerMap() {
   const mapRef = useRef(null);
   const [drones, setDrones] = useState(INITIAL_DRONE_ARRAY);
   const [selectedDrone, setSelectedDrone] = useState(null);
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isImageLoaded, setIsImageLoaded] = useState(false);
 
   const updateDronePositions = useCallback(() => {
     setDrones((prevDrones) =>
@@ -164,34 +104,109 @@ export default function DroneTrackerMap() {
     setIsSidebarOpen((prev) => !prev);
   }, []);
 
+  const handleDroneClick = useCallback(
+    (id, coords) => {
+      const drone = drones.find((d) => d.id === id);
+      if (drone) {
+        setSelectedDrone(drone);
+        setIsSidebarOpen(true);
+        if (mapRef.current) {
+          mapRef.current.getMap().flyTo({
+            center: coords,
+            zoom: 15,
+            duration: 1000,
+          });
+        }
+      }
+    },
+    [drones]
+  );
+
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+
+    if (map) {
+      const loadImage = () => {
+        if (!map.hasImage(DRONE_IMAGE_ID)) {
+          map.loadImage(droneImage, (error, image) => {
+            if (error) {
+              console.error("Lỗi tải ảnh drone:", error);
+              return;
+            }
+            map.addImage(DRONE_IMAGE_ID, image, { sdf: true });
+            setIsImageLoaded(true);
+          });
+        } else {
+          setIsImageLoaded(true);
+        }
+      };
+
+      map.on("load", loadImage);
+      if (map.isStyleLoaded()) {
+        loadImage();
+      }
+
+      return () => {
+        map.off("load", loadImage);
+      };
+    }
+  }, [mapRef.current]);
+
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (map && isImageLoaded) {
+      const handleClick = (e) => {
+        const features = map.queryRenderedFeatures(e.point, {
+          layers: ["unclustered-point"],
+        });
+
+        if (!features.length) return;
+
+        const feature = features[0];
+        const droneId = feature.properties.id;
+        const coords = feature.geometry.coordinates;
+
+        handleDroneClick(droneId, coords);
+      };
+
+      map.on("click", "unclustered-point", handleClick);
+
+      map.on("mouseenter", "unclustered-point", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "unclustered-point", () => {
+        map.getCanvas().style.cursor = "";
+      });
+
+      return () => {
+        map.off("click", "unclustered-point", handleClick);
+        map.off("mouseenter", "unclustered-point", () => {});
+        map.off("mouseleave", "unclustered-point", () => {});
+      };
+    }
+  }, [mapRef.current, isImageLoaded, handleDroneClick]);
+
   useEffect(() => {
     const interval = setInterval(updateDronePositions, 2000);
     return () => clearInterval(interval);
   }, [updateDronePositions]);
 
-  const handleDroneClick = useCallback((drone) => {
-    setSelectedDrone(drone);
-    setIsSidebarOpen(true);
-
-    if (mapRef.current) {
-      mapRef.current.getMap().flyTo({
-        center: drone.currentPosition,
-        zoom: 15,
-        duration: 1000,
-      });
-    }
-  }, []);
-
   const clearSelectedDrone = useCallback(() => {
     setSelectedDrone(null);
   }, []);
+
+  const droneGeoJSON = useMemo(() => {
+    return dronesToGeoJSON(drones);
+  }, [drones]);
 
   return (
     <>
       <LeftSidebar
         drones={drones}
         selectedDrone={selectedDrone}
-        handleDroneClick={handleDroneClick}
+        handleDroneClick={(drone) =>
+          handleDroneClick(drone.id, drone.currentPosition)
+        }
         isSidebarOpen={isSidebarOpen}
         toggleSidebar={toggleSidebar}
         clearSelectedDrone={clearSelectedDrone}
@@ -205,31 +220,6 @@ export default function DroneTrackerMap() {
         mapboxAccessToken={MAPBOX_TOKEN}
         id="mainMap"
       >
-        {drones.map((drone) => {
-          return (
-            <Marker
-              key={drone.id}
-              longitude={drone.currentPosition[0]}
-              latitude={drone.currentPosition[1]}
-              anchor="bottom"
-              onClick={() => handleDroneClick(drone)}
-            >
-              <div
-                style={{
-                  fontSize: "30px",
-                  cursor: "pointer",
-                  color:
-                    drone.orderStatus === "Đã giao" ? "#009900" : "#FF0000",
-                  position: 'relative'
-                }}
-                title={`Drone ID: ${drone.id}`}
-              >
-                <img src={droneImage} alt="drone" style={{width: 48, height: 48, position: 'absolute', bottom: -10}}/>
-              </div>
-            </Marker>
-          );
-        })}
-
         {selectedDrone && (
           <>
             <Source
@@ -241,6 +231,21 @@ export default function DroneTrackerMap() {
               <Layer {...routeLayerStyle} />
             </Source>
           </>
+        )}
+
+        {isImageLoaded && (
+          <Source
+            id="drone-source"
+            type="geojson"
+            data={droneGeoJSON}
+            cluster={true}
+            clusterMaxZoom={14}
+            clusterRadius={50}
+          >
+            <Layer {...clusterLayer} />
+            <Layer {...clusterCountLayer} />
+            <Layer {...unclusteredPointLayer} />
+          </Source>
         )}
       </Map>
     </>
